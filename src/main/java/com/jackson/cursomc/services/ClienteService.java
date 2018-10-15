@@ -15,12 +15,16 @@ import org.springframework.transaction.annotation.Transactional;
 import com.jackson.cursomc.domain.Cidade;
 import com.jackson.cursomc.domain.Cliente;
 import com.jackson.cursomc.domain.Endereco;
+import com.jackson.cursomc.domain.enums.Perfil;
 import com.jackson.cursomc.domain.enums.TipoCliente;
 import com.jackson.cursomc.dto.ClienteDTO;
 import com.jackson.cursomc.dto.ClienteNewDTO;
 import com.jackson.cursomc.repository.ClienteRepository;
 import com.jackson.cursomc.repository.EnderecoRepository;
+import com.jackson.cursomc.security.UserSS;
+import com.jackson.cursomc.services.exception.AuthorizationException;
 import com.jackson.cursomc.services.exception.DataIntegrityException;
+import com.jackson.cursomc.services.exception.ObjectNotFoudException;
 
 @Service
 public class ClienteService {
@@ -29,21 +33,27 @@ public class ClienteService {
 	private ClienteRepository repo;
 	
 	@Autowired
-	private BCryptPasswordEncoder pe;
-	
-	@Autowired
 	private EnderecoRepository enderecoRepository;
 	
-	public Cliente find(Integer id){
-		Optional <Cliente> obj = repo.findById(id);
-		return obj.orElseThrow(() -> new com.jackson.cursomc.services.exception.ObjectNotFoudException(
-				"Objeto não encontrado! id: " + id + "Tipo: " + Cliente.class.getName()));
+	@Autowired
+	private BCryptPasswordEncoder pe;
+	
+	public Cliente find(Integer id) {
+		
+		UserSS user = UserService.authenticated();
+		if (user==null || !user.hasRole(Perfil.ADMIN) && !id.equals(user.getId())) {
+			throw new AuthorizationException("Acesso negado");
+		}
+		
+		Optional<Cliente> obj = repo.findById(id);
+		return obj.orElseThrow(() -> new ObjectNotFoudException(
+				"Objeto não encontrado! Id: " + id + ", Tipo: " + Cliente.class.getName()));
 	}
 	
-	@Transactional()
+	@Transactional
 	public Cliente insert(Cliente obj) {
 		obj.setId(null);
-		obj =  repo.save(obj);
+		obj = repo.save(obj);
 		enderecoRepository.saveAll(obj.getEnderecos());
 		return obj;
 	}
@@ -57,37 +67,36 @@ public class ClienteService {
 	public void delete(Integer id) {
 		find(id);
 		try {
-		repo.deleteById(id);
+			repo.deleteById(id);
 		}
-		catch(DataIntegrityViolationException e) {
-			throw new DataIntegrityException("Não e possivel excluir uma Cliente que possui pedidos");
+		catch (DataIntegrityViolationException e) {
+			throw new DataIntegrityException("Não é possível excluir porque há pedidos relacionados");
 		}
 	}
 	
-	public List<Cliente> findAll(){
+	public List<Cliente> findAll() {
 		return repo.findAll();
 	}
 	
-	public Page<Cliente> findPage(Integer page, Integer linesPerPage, String orderBy, String direction){
-		
+	public Page<Cliente> findPage(Integer page, Integer linesPerPage, String orderBy, String direction) {
 		PageRequest pageRequest = PageRequest.of(page, linesPerPage, Direction.valueOf(direction), orderBy);
 		return repo.findAll(pageRequest);
 	}
 	
-	public Cliente fromDto(ClienteDTO objDto) {
+	public Cliente fromDTO(ClienteDTO objDto) {
 		return new Cliente(objDto.getId(), objDto.getNome(), objDto.getEmail(), null, null, null);
 	}
 	
-	public Cliente fromDto(ClienteNewDTO objDto) {
-		Cliente cli = new Cliente(null, objDto.getNome(), objDto.getEmail(), objDto.getCpfOuCnpj(), TipoCliente.toEnum(objDto.getTipo()),pe.encode(objDto.getSenha()));
-		Cidade cid = new Cidade(objDto.getCidadeId(), null,null);
+	public Cliente fromDTO(ClienteNewDTO objDto) {
+		Cliente cli = new Cliente(null, objDto.getNome(), objDto.getEmail(), objDto.getCpfOuCnpj(), TipoCliente.toEnum(objDto.getTipo()), pe.encode(objDto.getSenha()));
+		Cidade cid = new Cidade(objDto.getCidadeId(), null, null);
 		Endereco end = new Endereco(null, objDto.getLogradouro(), objDto.getNumero(), objDto.getComplemento(), objDto.getBairro(), objDto.getCep(), cli, cid);
 		cli.getEnderecos().add(end);
 		cli.getTelefones().add(objDto.getTelefone1());
-		if(objDto.getTelefone2() != null) {
+		if (objDto.getTelefone2()!=null) {
 			cli.getTelefones().add(objDto.getTelefone2());
 		}
-		if(objDto.getTelefone3() != null) {
+		if (objDto.getTelefone3()!=null) {
 			cli.getTelefones().add(objDto.getTelefone3());
 		}
 		return cli;
@@ -97,5 +106,4 @@ public class ClienteService {
 		newObj.setNome(obj.getNome());
 		newObj.setEmail(obj.getEmail());
 	}
-
 }
